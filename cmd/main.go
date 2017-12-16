@@ -2,20 +2,18 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"io/ioutil"
-	"math/rand"
-	"strings"
 	"time"
+	//"encoding/json"
+	"io"
+	"strings"
 
+	"cloud.google.com/go/datastore"
 	log "github.com/Sirupsen/logrus"
-	"github.com/fsouza/fake-gcs-server/fakestorage"
-	slugify "github.com/metal3d/go-slugify"
 
-	"bytes"
-	"encoding/base64"
-	"encoding/gob"
+	"github.com/jedynykaban/testkeyholder/model"
+	"github.com/jedynykaban/testkeyholder/services"
+
+	"github.com/jinzhu/now"
 )
 
 type x struct {
@@ -42,114 +40,66 @@ func setupLogging(output io.Writer, level log.Level, format string) {
 func main() {
 	log.Info("application started")
 
-	s := "ALA MA KOTkA"
-	log.Info(strings.Title(s))
-	s = strings.ToLower(s)
-	log.Info(strings.Title(s))
+	zulu := "2017-12-11T10:25:49Z"
+	x, _ := now.Parse(zulu)
+	log.Infof("Zulu: %v, parsed: %v", zulu, x)
 
-	log.Info("t: ", time.Duration(rand.Intn(int(time.Second))))
-
-	toSlug := "A > B"
-	log.Info("original: ", toSlug)
-	slugged := slugify.Marshal(toSlug, true)
-	log.Info("slug(1): ", slugged)
-	log.Info("slug(2): ", slugify.Marshal(slugged))
-
-	serverSimpleTest()
-	serverMoreComplexTest()
+	y, _ := time.Parse(time.RFC3339, zulu)
+	log.Infof("Zulu: %v, parsed: %v", zulu, y)
 
 	log.Info("application completed")
 }
 
-func serverSimpleTest() {
-	server := fakestorage.NewServer([]fakestorage.Object{
-		{
-			BucketName: "some-bucket",
-			Name:       "some/object/file.txt",
-			Content:    []byte("inside the file"),
-		},
-	})
-	defer server.Stop()
-	client := server.Client()
-	object := client.Bucket("some-bucket").Object("some/object/file.txt")
-	reader, err := object.NewReader(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	defer reader.Close()
-	data, err := ioutil.ReadAll(reader)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("%s\n", data)
+func mainZ() {
+	log.Info("application started")
+
+	zulu := "Mon, 11 Dec 2017 10:25:49 +0000"
+	x, _ := now.Parse(zulu)
+	log.Infof("Zulu: %v, parsed: %v", zulu, x)
+
+	y, _ := time.Parse(time.RFC1123Z, zulu)
+	log.Infof("Zulu: %v, parsed: %v", zulu, y)
+
+	log.Info("application completed")
 }
 
-func serverMoreComplexTest() {
-	xb := x{ID: "id", Name: "test", Value: 13}
-	fmt.Printf("%v\n", xb)
-	encoded := toGOB(xb)
+func mainX() {
+	log.Info("application started")
 
-	server := fakestorage.NewServer([]fakestorage.Object{})
-	defer server.Stop()
+	ctx := context.Background()
+	client, _ := datastore.NewClient(ctx, "mosaiqio-dev")
 
-	obj := fakestorage.Object{
-		BucketName: "another-bucket",
-		Name:       xb.ID,
-		Content:    encoded,
+	dbMitem := &model.DatabaseMitem{}
+	//query := datastore.NewQuery("Mitem")
+	id := "EhAKBU1pdGVtEICAgPb6mI4J"
+	key, err := datastore.DecodeKey(id)
+	_ = client.Get(ctx, key, dbMitem)
+
+	// for idx := range pubs {
+	// 	log.Infof("Publisher: %v (key: %v, decoded: %v)\n", pubs[idx], keys[idx], keys[idx].Encode())
+	// }
+
+	eKey := "EhAKBU1pdGVtEICAgPb2z4IJ"
+	dKey := datastore.Key{}
+
+	if len(eKey) > 0 {
+		key, _ := datastore.DecodeKey(eKey)
+		log.Infof("Encoded key: %v;  Decoded key: %v)\n", eKey, key)
+	} else {
+		log.Infof("Decoded key: %v;  Encoded key: %v)\n", dKey, dKey.Encode())
 	}
-	server.CreateObject(obj)
 
-	fmt.Println("-------------------")
+	jsonRaw := dbMitem.Data
 
-	client := server.Client()
-	object := client.Bucket(obj.BucketName).Object(obj.Name)
-	reader, err := object.NewReader(context.Background())
 	if err != nil {
-		panic(err)
+		log.Errorf("Will not work...: %v", err)
 	}
-	defer reader.Close()
-	data, err := ioutil.ReadAll(reader)
+	kojo := services.NewKojo()
+	cd, err := kojo.GetCreationDate(jsonRaw)
 	if err != nil {
-		panic(err)
+		log.Error(err)
 	}
+	log.Infof("mitem creation date: %v\n", cd)
 
-	xa := fromGOB(data)
-	fmt.Printf("%v\n", xa)
-}
-
-// go binary encoder
-func toGOB(m x) []byte {
-	b := bytes.Buffer{}
-	e := gob.NewEncoder(&b)
-	err := e.Encode(m)
-	if err != nil {
-		fmt.Println(`failed gob Encode`, err)
-	}
-	return b.Bytes()
-}
-
-func toGOB64(m x) string {
-	return base64.StdEncoding.EncodeToString(toGOB(m))
-}
-
-// go binary decoder
-func fromGOB(by []byte) x {
-	m := x{}
-	b := bytes.Buffer{}
-	b.Write(by)
-	d := gob.NewDecoder(&b)
-	err := d.Decode(&m)
-	if err != nil {
-		fmt.Println(`failed gob Decode`, err)
-	}
-	return m
-}
-
-// go binary decoder
-func fromGOB64(str string) x {
-	by, err := base64.StdEncoding.DecodeString(str)
-	if err != nil {
-		fmt.Println(`failed base64 Decode`, err)
-	}
-	return fromGOB(by)
+	log.Info("application completed")
 }
